@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, FileDown, Database, Clipboard, RefreshCw, ShieldCheck, PlayCircle, Lock, LogOut, UserCog, X, Cloud, Link as LinkIcon, Save, Calculator, HelpCircle, Copy, CheckCircle, XCircle, Trash2, HardDrive } from 'lucide-react';
+import { Upload, FileDown, Database, Clipboard, RefreshCw, ShieldCheck, PlayCircle, Lock, LogOut, UserCog, X, Cloud, Link as LinkIcon, Save, Calculator, HelpCircle, Copy, CheckCircle, XCircle, Trash2, HardDrive, PieChart } from 'lucide-react';
 import { EquipmentItem, Status } from './types';
 import { INITIAL_DATA, THRESHOLD_COMMITTEE_APPROVAL } from './constants';
 import EquipmentTable from './components/EquipmentTable';
@@ -647,74 +647,85 @@ const App: React.FC = () => {
 
         <MetricsCards metrics={metrics} />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {/* Main Table Section */}
-          <div className="lg:col-span-2 space-y-6">
-             <div className="flex justify-between items-end mb-2">
+        {/* 1. Main Table Section (Full Width) */}
+        <div className="space-y-4 mb-8">
+            <div className="flex justify-between items-end">
                 <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                  <Database className="w-5 h-5 text-gray-500" />
-                  設備申請清單 
-                  {lastUpdated && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">已更新</span>}
+                    <Database className="w-5 h-5 text-gray-500" />
+                    設備申請清單 
+                    {lastUpdated && <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full border border-green-200">已更新</span>}
                 </h2>
-             </div>
-             <EquipmentTable items={items} />
-          </div>
+            </div>
+            <EquipmentTable items={items} />
+        </div>
 
-          {/* Sidebar: Charts & AI */}
-          <div className="space-y-8">
-            <AnalysisPanel items={items} />
-
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-6">前五大成本分配</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={costData} layout="vertical" margin={{ left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" width={100} tick={{fontSize: 12}} />
-                    <Tooltip 
-                      formatter={(value: number) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(value)}
-                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    />
-                    <Bar dataKey="cost" radius={[0, 4, 4, 0]}>
-                      {costData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#4f46e5' : '#818cf8'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+        {/* 2. Bottom Grid: Cost Chart & AI Analysis */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Left: Top 5 Cost Distribution */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col">
+                <h3 className="text-base font-bold text-gray-700 mb-6 flex items-center gap-2">
+                    <PieChart className="w-5 h-5 text-indigo-500" />
+                    前五大成本分配
+                </h3>
+                <div className="h-80 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={costData} layout="vertical" margin={{ left: 10, right: 30 }}>
+                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e5e7eb" />
+                            <XAxis type="number" hide />
+                            <YAxis 
+                                dataKey="name" 
+                                type="category" 
+                                width={140} 
+                                tick={{fontSize: 12, fill: '#4b5563'}} 
+                            />
+                            <Tooltip 
+                                cursor={{fill: '#f3f4f6'}}
+                                formatter={(value: number) => new Intl.NumberFormat('zh-TW', { style: 'currency', currency: 'TWD', maximumFractionDigits: 0 }).format(value)}
+                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                            />
+                            <Bar dataKey="cost" radius={[0, 4, 4, 0]} barSize={32}>
+                                {costData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#4f46e5' : '#818cf8'} />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
             </div>
 
-            {/* Hint Box: Modified based on Admin status */}
-            {isAdmin ? (
-               <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100">
-                  <h4 className="font-bold text-indigo-800 mb-2 flex items-center gap-2">
-                    <UserCog className="w-4 h-4" />
-                    管理員操作指南
-                  </h4>
-                  <ul className="text-sm text-indigo-700 space-y-2 list-disc list-inside">
-                    <li>請使用上方區塊進行資料更新。</li>
-                    <li>更新後資料會<span className="font-bold">自動儲存</span>在您的電腦中。</li>
-                    <li>
-                      <span className="font-bold">Google Sheets 同步：</span>
-                      請貼上「發布到網路」的 CSV 連結。
-                    </li>
-                    <li>完成更新後，建議點擊右上角登出，恢復公開瀏覽模式。</li>
-                  </ul>
-               </div>
-            ) : (
-               <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
-                 <h4 className="font-bold text-gray-600 mb-2 flex items-center gap-2">
-                   <ShieldCheck className="w-4 h-4" />
-                   公開瀏覽模式
-                 </h4>
-                 <p className="text-sm text-gray-500 leading-relaxed">
-                   您目前處於公開瀏覽模式，僅能檢視採購進度與分析報告。如需更新資料，請點擊右上角進行管理員登入。
-                 </p>
-               </div>
-            )}
-          </div>
+            {/* Right: AI Analysis & Hints */}
+            <div className="space-y-6">
+                <AnalysisPanel items={items} />
+
+                {/* Hint Box: Modified based on Admin status */}
+                {isAdmin ? (
+                    <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 h-full">
+                        <h4 className="font-bold text-indigo-800 mb-2 flex items-center gap-2">
+                            <UserCog className="w-4 h-4" />
+                            管理員操作指南
+                        </h4>
+                        <ul className="text-sm text-indigo-700 space-y-2 list-disc list-inside">
+                            <li>請使用上方區塊進行資料更新。</li>
+                            <li>更新後資料會<span className="font-bold">自動儲存</span>在您的電腦中。</li>
+                            <li>
+                                <span className="font-bold">Google Sheets 同步：</span>
+                                請貼上「發布到網路」的 CSV 連結。
+                            </li>
+                            <li>完成更新後，建議點擊右上角登出，恢復公開瀏覽模式。</li>
+                        </ul>
+                    </div>
+                ) : (
+                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+                        <h4 className="font-bold text-gray-600 mb-2 flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4" />
+                            公開瀏覽模式
+                        </h4>
+                        <p className="text-sm text-gray-500 leading-relaxed">
+                            您目前處於公開瀏覽模式，僅能檢視採購進度與分析報告。如需更新資料，請點擊右上角進行管理員登入。
+                        </p>
+                    </div>
+                )}
+            </div>
         </div>
       </main>
     </div>
