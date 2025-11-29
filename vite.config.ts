@@ -10,9 +10,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     define: {
-      // This is the key part: it replaces `process.env.API_KEY` in your code
-      // with the actual value from Vercel's environment variables during build.
+      // Expose environment variables to the client-side code
       'process.env.API_KEY': JSON.stringify(env.API_KEY),
+      'process.env.SHEET_URL': JSON.stringify(env.SHEET_URL),
     },
   };
 });

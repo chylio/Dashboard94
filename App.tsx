@@ -1,12 +1,92 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, FileDown, Database, Clipboard, RefreshCw, ShieldCheck, PlayCircle, Lock, LogOut, UserCog, X, Cloud, Link as LinkIcon, Save, Calculator, HelpCircle, Copy, CheckCircle, XCircle, Trash2, HardDrive, PieChart } from 'lucide-react';
+import { Upload, FileDown, Database, Clipboard, RefreshCw, ShieldCheck, PlayCircle, Lock, LogOut, UserCog, X, Cloud, Link as LinkIcon, Save, Calculator, HelpCircle, Copy, CheckCircle, XCircle, Trash2, HardDrive, PieChart, Globe } from 'lucide-react';
 import { EquipmentItem, Status } from './types';
 import { INITIAL_DATA, THRESHOLD_COMMITTEE_APPROVAL } from './constants';
 import EquipmentTable from './components/EquipmentTable';
 import MetricsCards from './components/MetricsCards';
 import AnalysisPanel from './components/AnalysisPanel';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+
+// --- Shared Parser Logic (Moved outside component for accessibility) ---
+const parseRawData = (text: string): EquipmentItem[] => {
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return []; // Header only or empty
+
+  // Detect delimiter: Excel copy-paste uses Tabs (\t), CSV uses Commas (,)
+  const firstLine = lines[0];
+  const isTSV = firstLine.includes('\t');
+  
+  return lines.slice(1) // skip header
+    .filter(line => line.trim() !== '')
+    .map((line, index) => {
+      let cols: string[];
+
+      if (isTSV) {
+        cols = line.split('\t');
+      } else {
+        cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+      }
+      
+      const clean = (s: string) => s?.replace(/^"|"$/g, '').trim() || '';
+      
+      // Column Mapping:
+      // 0: Project Number (計畫編號)
+      // 1: Name (設備名稱)
+      // 2: Quantity (核定數量)
+      // 3: Unit (單位)
+      // 4: Start Status (開始狀態)
+      // 5: Cost (預估費用)
+      // 6: Dean Approval
+      // 7: Committee Approval
+      // 8: Signature
+      // 9: Requisition
+      // 10: Procurement
+
+      const projectNumber = clean(cols[0]);
+      const name = clean(cols[1]);
+      const quantity = parseFloat(clean(cols[2])) || 1;
+      const unit = clean(cols[3]) || '式';
+      const startStatus = clean(cols[4]);
+      const cost = parseFloat(clean(cols[5]).replace(/,/g, '')) || 0;
+      
+      // Robust Status Checking
+      const isApproved = (val: string) => {
+        const v = (val || '').toUpperCase();
+        return v === '1' || v === 'V' || v.includes('APPROVED') || v.includes('GREEN') || v.includes('已核准') || v.includes('通過') || v.includes('綠燈') || v.includes('YES') || v.includes('是');
+      };
+
+      const isYes = (val: string) => {
+        const v = (val || '').toLowerCase();
+        return v === '1' || v === 'v' || v.includes('yes') || v.includes('true') || v.includes('是') || v.includes('完成') || v.includes('y');
+      };
+
+      const isCompleted = (val: string) => {
+         const v = (val || '').toLowerCase();
+         return v.includes('completed') || v.includes('完成') || v.includes('結束');
+      };
+
+      let procStatus = Status.PENDING;
+      const rawProc = clean(cols[10]); 
+      if (isCompleted(rawProc)) procStatus = Status.COMPLETED;
+      else if (rawProc.includes('進行') || rawProc.includes('IN')) procStatus = Status.IN_PROGRESS;
+
+      return {
+        id: `item-${index}-${Date.now()}`,
+        projectNumber: projectNumber || 'N/A',
+        name: name || '未命名項目',
+        approvedQuantity: quantity,
+        unit: unit,
+        startStatus: startStatus || '新申請',
+        estimatedCost: cost,
+        deanApproval: isApproved(clean(cols[6])) ? Status.APPROVED : Status.PENDING,
+        committeeApproval: cost < THRESHOLD_COMMITTEE_APPROVAL ? Status.NOT_APPLICABLE : (isApproved(clean(cols[7])) ? Status.APPROVED : Status.PENDING),
+        signatureComplete: isYes(clean(cols[8])),
+        requisitionSent: isYes(clean(cols[9])),
+        procurementProcess: procStatus
+      };
+    });
+};
 
 const App: React.FC = () => {
   // 1. Initialize state from localStorage if available
@@ -29,9 +109,40 @@ const App: React.FC = () => {
     }
   });
 
-  // 2. Persist data changes to localStorage
+  const [isGlobalSource, setIsGlobalSource] = useState(false);
+
+  // 2. Auto-fetch from Env Variable (Global Sync) on Mount
+  useEffect(() => {
+    const envSheetUrl = process.env.SHEET_URL;
+    if (envSheetUrl) {
+      console.log("Found Global Sheet URL, syncing...");
+      fetch(envSheetUrl)
+        .then(res => {
+          if (!res.ok) throw new Error("Network response was not ok");
+          return res.text();
+        })
+        .then(text => {
+          const newItems = parseRawData(text);
+          if (newItems.length > 0) {
+            setItems(newItems);
+            setLastUpdated(new Date());
+            setIsGlobalSource(true);
+            // Optional: Don't save global data to local storage to avoid confusion, 
+            // or save it as a cache. Here we just set state.
+          }
+        })
+        .catch(err => {
+          console.error("Global sheet sync failed:", err);
+        });
+    }
+  }, []);
+
+  // 3. Persist data changes to localStorage (Only if NOT global source, or if user manually edited)
   useEffect(() => {
     try {
+      // If user is admin and edits data, we save to local storage
+      // If it's global source, we strictly don't need to save to local storage unless we want offline cache
+      // For simplicity, we keep saving to allow "Edit on top of Global" scenario
       localStorage.setItem('equipflow_data', JSON.stringify(items));
       if (lastUpdated) {
         localStorage.setItem('equipflow_last_updated', lastUpdated.toISOString());
@@ -55,7 +166,7 @@ const App: React.FC = () => {
   const [inputMode, setInputMode] = useState<'file' | 'paste' | 'cloud'>('paste');
   const [pasteContent, setPasteContent] = useState('');
 
-  // Cloud Sync State
+  // Cloud Sync State (Manual)
   const [sheetUrl, setSheetUrl] = useState('');
   const [rememberUrl, setRememberUrl] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -85,7 +196,6 @@ const App: React.FC = () => {
 
   const handleLogout = () => {
     setIsAdmin(false);
-    // Optional: Reset data input state on logout if desired
     setPasteContent('');
   };
 
@@ -93,90 +203,11 @@ const App: React.FC = () => {
     if (window.confirm('確定要清除所有暫存資料並恢復為預設範例嗎？此動作無法復原。')) {
       setItems(INITIAL_DATA);
       setLastUpdated(null);
+      setIsGlobalSource(false);
       localStorage.removeItem('equipflow_data');
       localStorage.removeItem('equipflow_last_updated');
       alert('資料已重置。');
     }
-  };
-
-  // Shared Parser Logic (Supports CSV and Excel Copy-Paste TSV)
-  const parseRawData = (text: string): EquipmentItem[] => {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return []; // Header only or empty
-
-    // Detect delimiter: Excel copy-paste uses Tabs (\t), CSV uses Commas (,)
-    const firstLine = lines[0];
-    const isTSV = firstLine.includes('\t');
-    
-    return lines.slice(1) // skip header
-      .filter(line => line.trim() !== '')
-      .map((line, index) => {
-        let cols: string[];
-
-        if (isTSV) {
-          cols = line.split('\t');
-        } else {
-          cols = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-        }
-        
-        const clean = (s: string) => s?.replace(/^"|"$/g, '').trim() || '';
-        
-        // NEW Column Mapping:
-        // 0: Project Number (計畫編號)
-        // 1: Name (設備名稱)
-        // 2: Quantity (核定數量) - NEW
-        // 3: Unit (單位) - NEW
-        // 4: Start Status (開始狀態)
-        // 5: Cost (預估費用)
-        // 6: Dean Approval
-        // 7: Committee Approval
-        // 8: Signature
-        // 9: Requisition
-        // 10: Procurement
-
-        const projectNumber = clean(cols[0]);
-        const name = clean(cols[1]);
-        const quantity = parseFloat(clean(cols[2])) || 1;
-        const unit = clean(cols[3]) || '式';
-        const startStatus = clean(cols[4]);
-        const cost = parseFloat(clean(cols[5]).replace(/,/g, '')) || 0;
-        
-        // Robust Status Checking
-        const isApproved = (val: string) => {
-          const v = (val || '').toUpperCase();
-          return v === '1' || v === 'V' || v.includes('APPROVED') || v.includes('GREEN') || v.includes('已核准') || v.includes('通過') || v.includes('綠燈') || v.includes('YES') || v.includes('是');
-        };
-
-        const isYes = (val: string) => {
-          const v = (val || '').toLowerCase();
-          return v === '1' || v === 'v' || v.includes('yes') || v.includes('true') || v.includes('是') || v.includes('完成') || v.includes('y');
-        };
-
-        const isCompleted = (val: string) => {
-           const v = (val || '').toLowerCase();
-           return v.includes('completed') || v.includes('完成') || v.includes('結束');
-        };
-
-        let procStatus = Status.PENDING;
-        const rawProc = clean(cols[10]); 
-        if (isCompleted(rawProc)) procStatus = Status.COMPLETED;
-        else if (rawProc.includes('進行') || rawProc.includes('IN')) procStatus = Status.IN_PROGRESS;
-
-        return {
-          id: `item-${index}-${Date.now()}`,
-          projectNumber: projectNumber || 'N/A',
-          name: name || '未命名項目',
-          approvedQuantity: quantity,
-          unit: unit,
-          startStatus: startStatus || '新申請',
-          estimatedCost: cost,
-          deanApproval: isApproved(clean(cols[6])) ? Status.APPROVED : Status.PENDING,
-          committeeApproval: cost < THRESHOLD_COMMITTEE_APPROVAL ? Status.NOT_APPLICABLE : (isApproved(clean(cols[7])) ? Status.APPROVED : Status.PENDING),
-          signatureComplete: isYes(clean(cols[8])),
-          requisitionSent: isYes(clean(cols[9])),
-          procurementProcess: procStatus
-        };
-      });
   };
 
   // Local File Upload
@@ -191,6 +222,7 @@ const App: React.FC = () => {
       if(newItems.length > 0) {
         setItems(newItems);
         setLastUpdated(new Date());
+        setIsGlobalSource(false); // Manual update overrides global
       } else {
         alert('無法解析檔案，請確認格式正確。');
       }
@@ -205,6 +237,7 @@ const App: React.FC = () => {
       setItems(newItems);
       setLastUpdated(new Date());
       setPasteContent('');
+      setIsGlobalSource(false); // Manual update overrides global
     } else {
       alert('無法解析資料，請確認您複製了包含標題的完整表格。');
     }
@@ -229,6 +262,7 @@ const App: React.FC = () => {
       if (newItems.length > 0) {
         setItems(newItems);
         setLastUpdated(new Date());
+        setIsGlobalSource(false); // Manual sync is treated as user action
       } else {
         alert('雖然連線成功，但無法解析資料。請確認連結是否為 Google Sheet 的 CSV 發布連結。');
       }
@@ -243,7 +277,6 @@ const App: React.FC = () => {
   const handleDownloadTemplate = () => {
     const bom = "\uFEFF";
     const headers = "計畫編號,設備名稱,核定數量,單位,開始狀態,預估費用,院長核准,經策會核准,簽呈完備,請購單送出,採購狀態\n";
-    // Provide robust examples using shorthands 1 and v
     const rows = [
         "113-A001,範例 MRI 掃描儀,1,台,新申請,15000000,1,待審核,0,0,進行中",
         "113-B052,小型離心機,5,組,汰舊換新,250000,v,不適用,v,v,完成",
@@ -379,7 +412,6 @@ const App: React.FC = () => {
                       </p>
                   </div>
 
-                  {/* Formula 1: Committee */}
                   <div className="space-y-2">
                       <h4 className="font-bold text-gray-800">1. 經策會自動判斷 (依據金額)</h4>
                       <p className="text-xs text-gray-500">當費用 (假設在 F 欄) 小於 300 萬顯示「不適用」，否則顯示「待審核」。</p>
@@ -397,7 +429,6 @@ const App: React.FC = () => {
                       </div>
                   </div>
 
-                  {/* Formula 2: Status Lights (Shorthand) */}
                   <div className="space-y-2">
                     <h4 className="font-bold text-gray-800">2. 快速輸入代號 (燈號自動變換)</h4>
                     <p className="text-xs text-gray-500">無需輸入公式！直接在審核欄位輸入簡單代號，儀表板即會自動識別為對應燈號：</p>
@@ -414,9 +445,6 @@ const App: React.FC = () => {
                             </span>
                             <span className="text-gray-600">請輸入： <code className="font-mono font-bold text-indigo-600 bg-white border border-gray-300 px-1.5 py-0.5 rounded">0</code> 或 <code className="font-mono font-bold text-indigo-600 bg-white border border-gray-300 px-1.5 py-0.5 rounded">x</code></span>
                         </div>
-                        <p className="text-xs text-gray-400 mt-2 border-t border-gray-200 pt-2">
-                            * 提示：在 Excel 中輸入這些代號即可，上傳後儀表板會自動轉換為漂亮的燈號圖示。
-                        </p>
                     </div>
                   </div>
               </div>
@@ -435,12 +463,21 @@ const App: React.FC = () => {
                 <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 hidden sm:block">
                   EquipFlow 設備採購儀表板
                 </h1>
-                {lastUpdated && !isAdmin && (
-                  <div className="text-[10px] text-gray-400 flex items-center gap-1">
-                    <HardDrive className="w-3 h-3" />
-                    資料來源：本機暫存 ({lastUpdated.toLocaleDateString()})
-                  </div>
-                )}
+                <div className="flex items-center gap-2 text-[10px]">
+                  {isGlobalSource ? (
+                    <span className="text-green-600 font-bold flex items-center gap-1">
+                      <Globe className="w-3 h-3" />
+                      資料來源：雲端同步 (Live)
+                    </span>
+                  ) : (
+                    lastUpdated && !isAdmin && (
+                      <span className="text-gray-400 flex items-center gap-1">
+                        <HardDrive className="w-3 h-3" />
+                        資料來源：本機暫存 ({lastUpdated.toLocaleDateString()})
+                      </span>
+                    )
+                  )}
+                </div>
              </div>
           </div>
           
@@ -709,7 +746,7 @@ const App: React.FC = () => {
                             <li>更新後資料會<span className="font-bold">自動儲存</span>在您的電腦中。</li>
                             <li>
                                 <span className="font-bold">Google Sheets 同步：</span>
-                                請貼上「發布到網路」的 CSV 連結。
+                                建議設定 Vercel 環境變數 <code>SHEET_URL</code>，讓所有使用者都能同步查看。
                             </li>
                             <li>完成更新後，建議點擊右上角登出，恢復公開瀏覽模式。</li>
                         </ul>
