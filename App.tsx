@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Upload, FileDown, Database, Clipboard, RefreshCw, ShieldCheck, PlayCircle, Lock, LogOut, UserCog, X, Cloud, Link as LinkIcon, Save, Calculator, HelpCircle, Copy, CheckCircle, XCircle } from 'lucide-react';
+import { Upload, FileDown, Database, Clipboard, RefreshCw, ShieldCheck, PlayCircle, Lock, LogOut, UserCog, X, Cloud, Link as LinkIcon, Save, Calculator, HelpCircle, Copy, CheckCircle, XCircle, Trash2, HardDrive } from 'lucide-react';
 import { EquipmentItem, Status } from './types';
 import { INITIAL_DATA, THRESHOLD_COMMITTEE_APPROVAL } from './constants';
 import EquipmentTable from './components/EquipmentTable';
@@ -9,7 +9,39 @@ import AnalysisPanel from './components/AnalysisPanel';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 const App: React.FC = () => {
-  const [items, setItems] = useState<EquipmentItem[]>(INITIAL_DATA);
+  // 1. Initialize state from localStorage if available
+  const [items, setItems] = useState<EquipmentItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('equipflow_data');
+      return saved ? JSON.parse(saved) : INITIAL_DATA;
+    } catch (e) {
+      console.error("Failed to load data from local storage", e);
+      return INITIAL_DATA;
+    }
+  });
+
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(() => {
+    try {
+      const saved = localStorage.getItem('equipflow_last_updated');
+      return saved ? new Date(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  // 2. Persist data changes to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('equipflow_data', JSON.stringify(items));
+      if (lastUpdated) {
+        localStorage.setItem('equipflow_last_updated', lastUpdated.toISOString());
+      } else {
+        localStorage.removeItem('equipflow_last_updated');
+      }
+    } catch (e) {
+      console.error("Failed to save data to local storage", e);
+    }
+  }, [items, lastUpdated]);
   
   // Admin & Login State
   const [isAdmin, setIsAdmin] = useState(false);
@@ -22,7 +54,6 @@ const App: React.FC = () => {
   // Data Input State
   const [inputMode, setInputMode] = useState<'file' | 'paste' | 'cloud'>('paste');
   const [pasteContent, setPasteContent] = useState('');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Cloud Sync State
   const [sheetUrl, setSheetUrl] = useState('');
@@ -56,6 +87,16 @@ const App: React.FC = () => {
     setIsAdmin(false);
     // Optional: Reset data input state on logout if desired
     setPasteContent('');
+  };
+
+  const handleResetData = () => {
+    if (window.confirm('確定要清除所有暫存資料並恢復為預設範例嗎？此動作無法復原。')) {
+      setItems(INITIAL_DATA);
+      setLastUpdated(null);
+      localStorage.removeItem('equipflow_data');
+      localStorage.removeItem('equipflow_last_updated');
+      alert('資料已重置。');
+    }
   };
 
   // Shared Parser Logic (Supports CSV and Excel Copy-Paste TSV)
@@ -390,9 +431,17 @@ const App: React.FC = () => {
              <div className="bg-blue-600 p-2 rounded-lg">
                 <Database className="text-white w-5 h-5" />
              </div>
-             <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 hidden sm:block">
-               EquipFlow 設備採購儀表板
-             </h1>
+             <div>
+                <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 hidden sm:block">
+                  EquipFlow 設備採購儀表板
+                </h1>
+                {lastUpdated && !isAdmin && (
+                  <div className="text-[10px] text-gray-400 flex items-center gap-1">
+                    <HardDrive className="w-3 h-3" />
+                    資料來源：本機暫存 ({lastUpdated.toLocaleDateString()})
+                  </div>
+                )}
+             </div>
           </div>
           
           <div className="flex items-center gap-2 sm:gap-4">
@@ -472,7 +521,15 @@ const App: React.FC = () => {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-emerald-600 hover:bg-white hover:shadow-sm transition-all whitespace-nowrap"
                 >
                   <Calculator className="w-4 h-4" />
-                  Excel 公式小幫手
+                  公式小幫手
+                </button>
+                <div className="w-px h-5 bg-gray-300 mx-1 hidden sm:block"></div>
+                <button 
+                  onClick={handleResetData}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium text-red-500 hover:bg-red-50 transition-all whitespace-nowrap"
+                  title="清除所有資料並恢復預設值"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
              </div>
             </div>
@@ -516,9 +573,9 @@ const App: React.FC = () => {
                           Google Sheets 同步
                         </h2>
                         <p className="text-xs text-green-700 mt-1">
-                          請輸入 Google Sheet「發布到網路」的 CSV 連結。
-                          <br/>
-                          <span className="opacity-70">操作方式：檔案 &gt; 分享 &gt; 發布到網路 &gt; 選擇工作表 &gt; 選擇 CSV &gt; 發布</span>
+                          請輸入 Google Sheet「發布到網路」的 CSV 連結。<br/>
+                          <span className="font-semibold">操作教學：</span>
+                          <span className="opacity-80">1. 檔案 &gt; 共用 &gt; 發布到網路 2. 選擇「工作表」與「CSV」格式 3. 按下發布並複製連結。</span>
                         </p>
                       </div>
                     </div>
@@ -551,7 +608,7 @@ const App: React.FC = () => {
                       />
                       <label htmlFor="rememberUrl" className="text-xs text-green-800 cursor-pointer font-medium select-none flex items-center gap-1">
                         <Save className="w-3 h-3" />
-                        在這台電腦上記住此連結 (方便下次快速更新)
+                        記住此連結 (下次登入可直接按更新)
                       </label>
                     </div>
                  </div>
@@ -638,13 +695,10 @@ const App: React.FC = () => {
                   </h4>
                   <ul className="text-sm text-indigo-700 space-y-2 list-disc list-inside">
                     <li>請使用上方區塊進行資料更新。</li>
-                    <li>
-                      <span className="font-bold">Excel 公式小幫手：</span>
-                      提供 Excel 判斷公式與輸入代號技巧。
-                    </li>
+                    <li>更新後資料會<span className="font-bold">自動儲存</span>在您的電腦中。</li>
                     <li>
                       <span className="font-bold">Google Sheets 同步：</span>
-                      勾選「記住連結」，下次登入即可一鍵更新。
+                      請貼上「發布到網路」的 CSV 連結。
                     </li>
                     <li>完成更新後，建議點擊右上角登出，恢復公開瀏覽模式。</li>
                   </ul>
