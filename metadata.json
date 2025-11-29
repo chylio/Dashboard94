@@ -1,0 +1,5 @@
+{
+  "name": "EquipFlow 設備採購儀表板",
+  "description": "將 Excel 設備清單轉換為視覺化進度追蹤器，並具備成本分析和 AI 洞察功能的採購儀表板。",
+  "requestFramePermissions": []
+}
